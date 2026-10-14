@@ -1199,9 +1199,9 @@ function pInitData(){if(PP.length)return;
 const pgl=document.getElementById('pgl');let GLX=null,GLP=null,GLvao=null,GLstat=null,GLdyn=null,GLtex=null,GLatlas=null,GLactx=null,GLready=false,GLoff=null,GLK=1,GLAW=2048,GLAH=4096,GLfail=false,GLU={},pUseGL=false,pWasAct=false,pUnderDrawn=false;
 function glInit(){if(GLX)return true;if(GLfail)return false;
  try{const g=pgl.getContext('webgl2',{alpha:true,premultipliedAlpha:true,antialias:false,depth:false,stencil:false});if(!g){GLfail=true;return false}
-  const vs='#version 300 es\nin vec2 a_c;in vec2 a_rest;in float a_size;in vec4 a_uv;in vec2 a_an;in vec2 a_off;uniform vec2 u_res;uniform float u_t;out vec2 v_uv;\n'+
+  const vs='#version 300 es\nin vec2 a_c;in vec2 a_rest;in float a_size;in vec4 a_uv;in vec2 a_an;in vec2 a_off;in float a_rot;uniform vec2 u_res;uniform float u_t;out vec2 v_uv;\n'+
   'void main(){float k=(u_t-a_an.x)/560.0;float kc=clamp(k,0.0,1.0);float t1=kc-1.0;float sc=k<=0.0?0.0:min(1.2,1.0+2.70158*t1*t1*t1+1.70158*t1*t1);if(k>=1.0)sc=1.0;'+
-  'float r=(1.0-kc)*a_an.y*2.2;float cs=cos(r),sn=sin(r);vec2 p=a_c*a_size*sc;p=vec2(p.x*cs-p.y*sn,p.x*sn+p.y*cs);vec2 pos=a_rest+a_off+p;'+
+  'float r=(1.0-kc)*a_an.y*2.2+a_rot;float cs=cos(r),sn=sin(r);vec2 p=a_c*a_size*sc;p=vec2(p.x*cs-p.y*sn,p.x*sn+p.y*cs);vec2 pos=a_rest+a_off+p;'+
   'gl_Position=vec4(pos.x/u_res.x*2.0-1.0,1.0-pos.y/u_res.y*2.0,0.0,1.0);v_uv=mix(a_uv.xy,a_uv.zw,a_c+0.5);}';
   const fs='#version 300 es\nprecision mediump float;in vec2 v_uv;uniform sampler2D u_tex;out vec4 o;void main(){o=texture(u_tex,v_uv);}';
   const mk=(t,src)=>{const sh=g.createShader(t);g.shaderSource(sh,src);g.compileShader(sh);if(!g.getShaderParameter(sh,g.COMPILE_STATUS))throw new Error(g.getShaderInfoLog(sh));return sh};
@@ -1211,31 +1211,39 @@ function glInit(){if(GLX)return true;if(GLfail)return false;
   const cb=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,cb);g.bufferData(g.ARRAY_BUFFER,new Float32Array([-.5,-.5,.5,-.5,-.5,.5,.5,.5]),g.STATIC_DRAW);
   let l=g.getAttribLocation(pr,'a_c');g.enableVertexAttribArray(l);g.vertexAttribPointer(l,2,g.FLOAT,false,0,0);
   GLstat=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,GLstat);
-  const A=(n,sz,off)=>{const q=g.getAttribLocation(pr,n);g.enableVertexAttribArray(q);g.vertexAttribPointer(q,sz,g.FLOAT,false,36,off);g.vertexAttribDivisor(q,1)};
-  A('a_rest',2,0);A('a_size',1,8);A('a_uv',4,12);A('a_an',2,28);
+  const A=(n,sz,off)=>{const q=g.getAttribLocation(pr,n);g.enableVertexAttribArray(q);g.vertexAttribPointer(q,sz,g.FLOAT,false,40,off);g.vertexAttribDivisor(q,1)};
+  A('a_rest',2,0);A('a_size',1,8);A('a_uv',4,12);A('a_an',2,28);A('a_rot',1,36);
   GLdyn=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,GLdyn);l=g.getAttribLocation(pr,'a_off');g.enableVertexAttribArray(l);g.vertexAttribPointer(l,2,g.FLOAT,false,0,0);g.vertexAttribDivisor(l,1);
   g.bindVertexArray(null);
   GLtex=g.createTexture();GLX=g;
   GLatlas=document.createElement('canvas');
   return true}catch(e){GLfail=true;GLX=null;return false}}
 const GLLS=[.7,.85,1,1,1];
+let GLcell=new Map(),GLord=[],GLdone=false,GLlastUp=0,GLdirty=false,pEl=0;
 function glPlan(){let tries=0;
- for(;;){for(const p of PP){p.ls=GLLS[p.li]*GLK;const R=p.d/2*pSpK*p.ls;p.S=2*(Math.ceil(R*1.12)+2)}
-  const idx=PP.map((p,i)=>i).sort((a,b)=>PP[b].S-PP[a].S);let x=0,y=0,rowH=0,ok=true;
-  for(const i of idx){const p=PP[i],s=p.S+2;if(x+s>GLAW){x=0;y+=rowH;rowH=0}if(y+s>GLAH){ok=false;break}p.ax=x+1;p.ay=y+1;x+=s;rowH=Math.max(rowH,s)}
+ for(;;){GLcell=new Map();
+  for(const p of PP){const key=p.t+'|'+p.li+'|'+p.d+'|'+(p.c[0]>>4)+'|'+(p.c[1]>>4)+'|'+(p.c[2]>>4);p.key=key;
+   if(!GLcell.has(key)){const ls=GLLS[p.li]*GLK,R=p.d/2*pSpK*ls;GLcell.set(key,{ls,R,S:2*(Math.ceil(R*1.12)+2),t:p.t,col:[(p.c[0]>>4)*16+8,(p.c[1]>>4)*16+8,(p.c[2]>>4)*16+8],done:false})}}
+  const cells=[...GLcell.values()].sort((a,b)=>b.S-a.S);let x=0,y=0,rowH=0,ok=true;
+  for(const c of cells){const s2=c.S+2;if(x+s2>GLAW){x=0;y+=rowH;rowH=0}if(y+s2>GLAH){ok=false;break}c.ax=x+1;c.ay=y+1;x+=s2;rowH=Math.max(rowH,s2)}
   if(ok||tries++>8)break;GLK*=.9}
- for(const p of PP)p.sw=p.S/(pDpr*p.ls)}
-function glReset(){GLready=false;pBuilt=0;GLK=1;if(PP.length){glPlan();GLatlas.width=GLAW;GLatlas.height=GLAH;GLactx=GLatlas.getContext('2d');GLactx.clearRect(0,0,GLAW,GLAH)}}
-function glDrawFlower(p){GLactx.save();GLactx.translate(p.ax+p.S/2,p.ay+p.S/2);pDrawBloom(GLactx,p.t,p.d/2*pSpK*p.ls,p.c,p.rot);GLactx.restore()}
-function glBuildStatic(){const n=PP.length,a=new Float32Array(n*9);
- for(let i=0;i<n;i++){const p=PP[i],o=i*9;a[o]=pox+p.x*pk;a[o+1]=poy+p.y*pk;a[o+2]=p.sw;a[o+3]=p.ax/GLAW;a[o+4]=p.ay/GLAH;a[o+5]=(p.ax+p.S)/GLAW;a[o+6]=(p.ay+p.S)/GLAH;a[o+7]=p.t0;a[o+8]=p.vr}
+ for(const p of PP){const c=GLcell.get(p.key);p.ls=c.ls;p.S=c.S;p.ax=c.ax;p.ay=c.ay;p.sw=c.S/(pDpr*c.ls);p.rdy=false;p.rt=1e9}
+ GLord=PP.slice().sort((a,b)=>a.t0-b.t0)}
+function glReset(){GLready=false;GLdone=false;GLdirty=false;pBuilt=0;GLK=1;if(PP.length){glPlan();GLatlas.width=GLAW;GLatlas.height=GLAH;GLactx=GLatlas.getContext('2d');GLactx.clearRect(0,0,GLAW,GLAH)}}
+function glDrawFlower(c){GLactx.save();GLactx.translate(c.ax+c.S/2,c.ay+c.S/2);pDrawBloom(GLactx,c.t,c.R,c.col,0);GLactx.restore()}
+function glBuildStatic(){const n=PP.length,a=new Float32Array(n*10);
+ for(let i=0;i<n;i++){const p=PP[i],o=i*10;a[o]=pox+p.x*pk;a[o+1]=poy+p.y*pk;a[o+2]=p.sw;a[o+3]=p.ax/GLAW;a[o+4]=p.ay/GLAH;a[o+5]=(p.ax+p.S)/GLAW;a[o+6]=(p.ay+p.S)/GLAH;a[o+7]=p.rdy?p.rt:1e9;a[o+8]=p.vr;a[o+9]=p.rot}
  GLX.bindBuffer(GLX.ARRAY_BUFFER,GLstat);GLX.bufferData(GLX.ARRAY_BUFFER,a,GLX.STATIC_DRAW);
  if(!GLoff||GLoff.length!==n*2){GLoff=new Float32Array(n*2);GLX.bindBuffer(GLX.ARRAY_BUFFER,GLdyn);GLX.bufferData(GLX.ARRAY_BUFFER,GLoff,GLX.DYNAMIC_DRAW)}}
-function glFinish(){const g=GLX;g.bindTexture(g.TEXTURE_2D,GLtex);g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,GLatlas);GLatlas.width=GLatlas.height=1;
+function glUpload(final){const g=GLX;g.bindTexture(g.TEXTURE_2D,GLtex);g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,GLatlas);
  g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);
- g.enable(g.BLEND);g.blendFunc(g.ONE,g.ONE_MINUS_SRC_ALPHA);glBuildStatic();GLready=true}
+ g.enable(g.BLEND);g.blendFunc(g.ONE,g.ONE_MINUS_SRC_ALPHA);
+ const now=portrait.classList.contains('show')?pEl:0;for(const p of PP)if(p.rdy&&p.rt>=1e9)p.rt=Math.max(p.t0,now+Math.random()*250);
+ glBuildStatic();GLready=true;GLdirty=false;GLlastUp=performance.now();
+ if(final){GLatlas.width=GLatlas.height=1;GLdone=true}}
 function pStep(ms){const t=performance.now();
- if(pUseGL){while(pBuilt<PP.length&&performance.now()-t<ms)glDrawFlower(PP[pBuilt++]);if(pBuilt>=PP.length&&!GLready)glFinish()}
+ if(pUseGL){if(GLdone)return;while(pBuilt<PP.length&&performance.now()-t<ms){const p=GLord[pBuilt++],c=GLcell.get(p.key);if(!c.done){c.done=true;glDrawFlower(c)}p.rdy=true;GLdirty=true}
+  if(GLdirty&&(pBuilt>=PP.length||(portrait.classList.contains('show')&&performance.now()-GLlastUp>350)))glUpload(pBuilt>=PP.length)}
  else{while(pBuilt<PP.length&&performance.now()-t<ms)pMake(PP[pBuilt++]);pDirty=true}}
 function pSize(){const r=Math.min(2,devicePixelRatio||1);pW=innerWidth;pH=innerHeight;
  for(const c of [pbk,pcv,pgl,pfx]){c.width=pW*r;c.height=pH*r}pUnderDrawn=false
@@ -1254,10 +1262,10 @@ function pAmbInit(){FP=[];for(let i=0;i<22;i++)FP.push(newPetal(true));
  BK=[];for(let i=0;i<26;i++)BK.push({x:Math.random(),y:Math.random(),r:6+Math.random()*26,v:.00002+Math.random()*.00004,a:.05+Math.random()*.1,ph:Math.random()*TAU})}
 function newPetal(init,x,y,burst){const a=Math.random()*TAU,sp=burst?2+Math.random()*5:0;
  return{x:x!=null?x:Math.random()*pW,y:y!=null?y:(init?Math.random()*pH:-20),vx:burst?Math.cos(a)*sp:(Math.random()-.5)*.3,vy:burst?Math.sin(a)*sp-1.5:.35+Math.random()*.5,rot:Math.random()*TAU,vr:(Math.random()-.5)*.06,ph:Math.random()*TAU,s:.45+Math.random()*.55,k:(Math.random()*3)|0,life:burst?1:2}}
-function pTick(ts){if(!pStart)pStart=ts;const el=Math.max(0,ts-pStart),RMo=RM;
- if(pUseGL&&!GLready)pStart=ts;
- if(pBuilt<PP.length)pStep(9);
- const el2=RMo?99999:el;
+function pTick(ts){const before=pr;try{pTick0(ts)}catch(e){try{console.error(e)}catch(_){}if(pr===before)pr=requestAnimationFrame(pTick)}}
+function pTick0(ts){if(!pStart)pStart=ts;const el=Math.max(0,ts-pStart),RMo=RM;
+ if(pBuilt<PP.length)pStep(pUseGL?(pBuilt<PP.length*.35?26:14):9);
+ const el2=RMo?99999:el;pEl=el2;
  /* physics */
  let act=false;const rad=Math.max(64,104*pk),rr=rad*rad,dtf=Math.min(3,Math.max(.3,(ts-(pLastTs||ts))/16.67)),dmp=Math.pow(.9,dtf);pLastTs=ts;
  for(const p of PP){const sx=pox+p.x*pk,sy=poy+p.y*pk;
@@ -1266,7 +1274,7 @@ function pTick(ts){if(!pStart)pStart=ts;const el=Math.max(0,ts-pStart),RMo=RM;
    if(Math.abs(p.dx)+Math.abs(p.dy)+Math.abs(p.vx)+Math.abs(p.vy)<.03){p.dx=p.dy=p.vx=p.vy=0}else act=true}}
  /* mosaic */
  if(pUseGL){
-  if(act||pWasAct){for(let i=0;i<PP.length;i++){GLoff[i*2]=PP[i].dx;GLoff[i*2+1]=PP[i].dy}GLX.bindBuffer(GLX.ARRAY_BUFFER,GLdyn);GLX.bufferSubData(GLX.ARRAY_BUFFER,0,GLoff)}
+  if(GLready&&GLoff&&(act||pWasAct)){for(let i=0;i<PP.length;i++){GLoff[i*2]=PP[i].dx;GLoff[i*2+1]=PP[i].dy}GLX.bindBuffer(GLX.ARRAY_BUFFER,GLdyn);GLX.bufferSubData(GLX.ARRAY_BUFFER,0,GLoff)}
   pWasAct=act;
   if(!pUnderDrawn&&pUnder.complete&&pUnder.naturalWidth){px2.clearRect(0,0,pW,pH);px2.save();px2.globalAlpha=.6;px2.imageSmoothingQuality='high';px2.drawImage(pUnder,pox,poy,PW0*pk,PH0*pk);px2.restore();pUnderDrawn=true}
   if(GLready){const g=GLX;g.viewport(0,0,pgl.width,pgl.height);g.clearColor(0,0,0,0);g.clear(g.COLOR_BUFFER_BIT);g.useProgram(GLP);g.uniform2f(GLU.res,pW,pH);g.uniform1f(GLU.t,el2);g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,GLtex);g.uniform1i(GLU.tex,0);g.bindVertexArray(GLvao);g.drawArraysInstanced(g.TRIANGLE_STRIP,0,4,PP.length)}
@@ -1307,7 +1315,7 @@ function pTick(ts){if(!pStart)pStart=ts;const el=Math.max(0,ts-pStart),RMo=RM;
     pfc.strokeStyle='rgba(255,244,214,'+a+')';pfc.lineWidth=1.3;pfc.beginPath();pfc.moveTo(x-L,y);pfc.lineTo(x+L,y);pfc.moveTo(x,y-L);pfc.lineTo(x,y+L);pfc.stroke();
     pfc.fillStyle='rgba(255,250,230,'+a*.8+')';pfc.beginPath();pfc.arc(x,y,2.2*a+.5,0,TAU);pfc.fill()}pfc.globalCompositeOperation='source-over'}}
  pr=requestAnimationFrame(pTick)}
-function openPortrait(fromHeart){pInitData();pSize();if(!FP.length)pAmbInit();pStart=0;pStatOK=false;pBB=null;pBuilt=Math.min(pBuilt,PP.length);for(const p of PP){p.dx=p.dy=p.vx=p.vy=0}
+function openPortrait(fromHeart){pInitData();pSize();if(pUseGL&&GLdone){for(const p of PP)p.rt=p.t0;glBuildStatic()}if(!FP.length)pAmbInit();pStart=0;pStatOK=false;pBB=null;pBuilt=Math.min(pBuilt,PP.length);for(const p of PP){p.dx=p.dy=p.vx=p.vy=0}
  portrait.classList.add('show');requestAnimationFrame(()=>portrait.classList.add('vis'));if(!pr)pr=requestAnimationFrame(pTick)}
 function closePortrait(){portrait.classList.remove('vis');setTimeout(()=>{if(portrait.classList.contains('vis'))return;portrait.classList.remove('show');if(pr){cancelAnimationFrame(pr);pr=null}},950)}
 const pPos=e=>{PTR.x=e.clientX;PTR.y=e.clientY};
